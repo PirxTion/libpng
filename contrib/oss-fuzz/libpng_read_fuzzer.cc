@@ -76,6 +76,16 @@ void user_read_data(png_structp png_ptr, png_bytep data, size_t length) {
   buf_state->data += length;
 }
 
+// dummy transform callback
+void my_user_transform(png_structp png_ptr, png_row_infop row_info, png_bytep data) {
+    // do nothing (placeholder)
+}
+
+// dummy user chunk handler
+png_uint_32 my_user_chunk(png_structp png_ptr, png_unknown_chunkp chunk) {
+    return PNG_HANDLE_CHUNK_AS_DEFAULT;
+}
+
 void* limited_malloc(png_structp, png_alloc_size_t size) {
   // libpng may allocate large amounts of memory that the fuzzer reports as
   // an error. In order to silence these errors, make libpng fail when trying
@@ -147,6 +157,10 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   png_set_read_fn(png_handler.png_ptr, png_handler.buf_state, user_read_data);
   png_set_sig_bytes(png_handler.png_ptr, kPngHeaderSize);
 
+  // Setting up user callbacks
+  png_set_read_user_transform_fn(png_handler.png_ptr, my_user_transform);
+  png_set_read_user_chunk_fn(png_handler.png_ptr, my_user_chunk, nullptr);
+
   if (setjmp(png_jmpbuf(png_handler.png_ptr))) {
     PNG_CLEANUP
     return 0;
@@ -201,6 +215,10 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   }
 
   png_read_end(png_handler.png_ptr, png_handler.end_info_ptr);
+
+  if (setjmp(png_jmpbuf(png_handler.png_ptr)) == 0) {
+    png_read_png(png_handler.png_ptr, png_handler.info_ptr, PNG_TRANSFORM_IDENTITY, nullptr);
+  }
 
   PNG_CLEANUP
 
