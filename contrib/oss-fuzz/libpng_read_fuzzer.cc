@@ -159,9 +159,9 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   // Setting up user callbacks
   png_set_read_user_transform_fn(png_handler.png_ptr, my_user_transform);
-  png_set_read_user_chunk_fn(png_handler.png_ptr,
-                            nullptr,
-                            my_user_chunk);
+  // png_set_read_user_chunk_fn(png_handler.png_ptr,
+  //                           nullptr,
+  //                           my_user_chunk);
 
   if (setjmp(png_jmpbuf(png_handler.png_ptr))) {
     PNG_CLEANUP
