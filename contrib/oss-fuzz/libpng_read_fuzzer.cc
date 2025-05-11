@@ -218,6 +218,11 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     }
   }
 
+  if (setjmp(png_jmpbuf(png_handler.png_ptr))) {
+    PNG_CLEANUP;
+    return 0;
+  }
+
   // extra progressive read
   if (height <= 2048) {                                   /* cap rows */
     png_handler.rows_ptr = static_cast<png_bytepp>(
@@ -233,6 +238,10 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     }
   }
 
+  if (setjmp(png_jmpbuf(png_handler.png_ptr))) {
+    PNG_CLEANUP;
+    return 0;
+  }
 
   // gamma check
   double file_gamma;
@@ -240,6 +249,11 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   if (setjmp(png_jmpbuf(png_handler.png_ptr)) == 0) {
     png_read_png(png_handler.png_ptr, png_handler.info_ptr, PNG_TRANSFORM_IDENTITY, nullptr);
+  }
+
+  if (setjmp(png_jmpbuf(png_handler.png_ptr))) {
+    PNG_CLEANUP;
+    return 0;
   }
 
   png_read_end(png_handler.png_ptr, png_handler.end_info_ptr);
