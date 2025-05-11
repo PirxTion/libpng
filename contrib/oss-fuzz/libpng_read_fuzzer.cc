@@ -136,13 +136,13 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   png_handler.info_ptr = png_create_info_struct(png_handler.png_ptr);
   if (!png_handler.info_ptr) {
-    PNG_CLEANUP
+    PNG_CLEANUP;
     return 0;
   }
 
   png_handler.end_info_ptr = png_create_info_struct(png_handler.png_ptr);
   if (!png_handler.end_info_ptr) {
-    PNG_CLEANUP
+    PNG_CLEANUP;
     return 0;
   }
 
@@ -166,7 +166,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
 
   if (setjmp(png_jmpbuf(png_handler.png_ptr))) {
-    PNG_CLEANUP
+    PNG_CLEANUP;
     return 0;
   }
 
@@ -175,7 +175,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   // reset error handler to put png_deleter into scope.
   if (setjmp(png_jmpbuf(png_handler.png_ptr))) {
-    PNG_CLEANUP
+    PNG_CLEANUP;
     return 0;
   }
 
@@ -186,13 +186,13 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   if (!png_get_IHDR(png_handler.png_ptr, png_handler.info_ptr, &width,
                     &height, &bit_depth, &color_type, &interlace_type,
                     &compression_type, &filter_type)) {
-    PNG_CLEANUP
+    PNG_CLEANUP;
     return 0;
   }
 
   // This is going to be too slow.
   if (width && height > 100000000 / width) {
-    PNG_CLEANUP
+    PNG_CLEANUP;
     return 0;
   }
 
@@ -219,19 +219,17 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   }
 
   // extra progressive read
-  if (h <= 4096) {                                        /* cap rows to avoid OOM */
-    png_handler.rows_ptr =
-        static_cast<png_bytepp>(png_malloc(png_handler.png_ptr,
-                                           sizeof(png_bytep) * h));
+  if (height <= 4096) {                                   /* cap rows */
+    png_handler.rows_ptr = static_cast<png_bytepp>(
+        png_malloc(png_handler.png_ptr, sizeof(png_bytep) * height));
     if (png_handler.rows_ptr) {
-      png_handler.rows_h = h;
-      for (png_uint_32 y = 0; y < h; ++y)
-        png_handler.rows_ptr[y] =
-            static_cast<png_bytep>(png_malloc(png_handler.png_ptr,
-                png_get_rowbytes(png_handler.png_ptr, png_handler.info_ptr)));
-
-      png_read_rows(png_handler.png_ptr, png_handler.rows_ptr, nullptr, h);
-      png_read_image(png_handler.png_ptr, png_handler.rows_ptr);
+      png_handler.rows_h = height;
+      for (png_uint_32 y = 0; y < height; ++y)
+        png_handler.rows_ptr[y] = static_cast<png_bytep>(
+            png_malloc(png_handler.png_ptr,
+                       png_get_rowbytes(png_handler.png_ptr, png_handler.info_ptr)));
+      png_read_rows  (png_handler.png_ptr, png_handler.rows_ptr, nullptr, height);
+      png_read_image (png_handler.png_ptr, png_handler.rows_ptr);
     }
   }
 
@@ -246,7 +244,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   png_read_end(png_handler.png_ptr, png_handler.end_info_ptr);
 
-  PNG_CLEANUP
+  PNG_CLEANUP;
 
 #ifdef PNG_SIMPLIFIED_READ_SUPPORTED
   // Simplified READ API
