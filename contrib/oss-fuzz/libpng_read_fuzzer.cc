@@ -22,24 +22,29 @@
 #define PNG_INTERNAL
 #include "png.h"
 
-#define PNG_CLEANUP \
-  if(png_handler.png_ptr) \
-  { \
-    if (png_handler.row_ptr) \
-      png_free(png_handler.png_ptr, png_handler.row_ptr); \
-    if (png_handler.end_info_ptr) \
-      png_destroy_read_struct(&png_handler.png_ptr, &png_handler.info_ptr,\
-        &png_handler.end_info_ptr); \
-    else if (png_handler.info_ptr) \
-      png_destroy_read_struct(&png_handler.png_ptr, &png_handler.info_ptr,\
-        nullptr); \
-    else \
+#define PNG_CLEANUP                        \
+  if (png_handler.png_ptr) {               \
+    /* free progressive rows */            \
+    if (png_handler.rows_ptr) {            \
+      for (png_uint_32 y = 0; y < png_handler.rows_h; ++y) \
+        if (png_handler.rows_ptr[y])       \
+          png_free(png_handler.png_ptr, png_handler.rows_ptr[y]); \
+      png_free(png_handler.png_ptr, png_handler.rows_ptr);        \
+    }                                      \
+    if (png_handler.row_ptr)               \
+      png_free(png_handler.png_ptr, png_handler.row_ptr);         \
+    if (png_handler.end_info_ptr)          \
+      png_destroy_read_struct(&png_handler.png_ptr,               \
+                              &png_handler.info_ptr,              \
+                              &png_handler.end_info_ptr);         \
+    else if (png_handler.info_ptr)         \
+      png_destroy_read_struct(&png_handler.png_ptr,               \
+                              &png_handler.info_ptr, nullptr);    \
+    else                                   \
       png_destroy_read_struct(&png_handler.png_ptr, nullptr, nullptr); \
-    png_handler.png_ptr = nullptr; \
-    png_handler.row_ptr = nullptr; \
-    png_handler.info_ptr = nullptr; \
-    png_handler.end_info_ptr = nullptr; \
-  }
+  }                                        \
+  delete png_handler.buf_state;            \
+  memset(&png_handler, 0, sizeof(png_handler)) 
 
 struct BufState {
   const uint8_t* data;
@@ -51,6 +56,10 @@ struct PngObjectHandler {
   png_structp png_ptr = nullptr;
   png_infop end_info_ptr = nullptr;
   png_voidp row_ptr = nullptr;
+
+  png_bytepp  rows_ptr  = nullptr;  /* array of row pointers            */
+  png_uint_32 rows_h    = 0;        /* number of rows actually alloc'd  */
+
   BufState* buf_state = nullptr;
 
   ~PngObjectHandler() {
@@ -210,17 +219,22 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   }
 
   // extra progressive read
-  if (height > 0 && height < 100000) {
-      std::vector<png_bytep> row_pointers(height);
-      for (png_uint_32 y = 0; y < height; y++)
-          row_pointers[y] = (png_bytep)malloc(png_get_rowbytes(png_handler.png_ptr, png_handler.info_ptr));
+  if (h <= 4096) {                                        /* cap rows to avoid OOM */
+    png_handler.rows_ptr =
+        static_cast<png_bytepp>(png_malloc(png_handler.png_ptr,
+                                           sizeof(png_bytep) * h));
+    if (png_handler.rows_ptr) {
+      png_handler.rows_h = h;
+      for (png_uint_32 y = 0; y < h; ++y)
+        png_handler.rows_ptr[y] =
+            static_cast<png_bytep>(png_malloc(png_handler.png_ptr,
+                png_get_rowbytes(png_handler.png_ptr, png_handler.info_ptr)));
 
-      png_read_rows(png_handler.png_ptr, row_pointers.data(), nullptr, height);
-      png_read_image(png_handler.png_ptr, row_pointers.data());
-
-      for (png_uint_32 y = 0; y < height; y++)
-          free(row_pointers[y]);
+      png_read_rows(png_handler.png_ptr, png_handler.rows_ptr, nullptr, h);
+      png_read_image(png_handler.png_ptr, png_handler.rows_ptr);
+    }
   }
+
 
   // gamma check
   double file_gamma;
