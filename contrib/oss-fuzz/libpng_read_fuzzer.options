@@ -1,3 +1,4 @@
 [libfuzzer]
 dict = png.dict
+timeout=0
 handle_timeout=0
