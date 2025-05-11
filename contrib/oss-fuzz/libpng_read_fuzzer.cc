@@ -219,7 +219,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   }
 
   // extra progressive read
-  if (height <= 4096) {                                   /* cap rows */
+  if (height <= 2048) {                                   /* cap rows */
     png_handler.rows_ptr = static_cast<png_bytepp>(
         png_malloc(png_handler.png_ptr, sizeof(png_bytep) * height));
     if (png_handler.rows_ptr) {
