@@ -210,15 +210,16 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   }
 
   // extra progressive read
-  png_bytep* row_pointers = (png_bytep*)malloc(sizeof(png_bytep) * height);
-  if (row_pointers) {
+  if (height > 0 && height < 100000) {
+      std::vector<png_bytep> row_pointers(height);
       for (png_uint_32 y = 0; y < height; y++)
           row_pointers[y] = (png_bytep)malloc(png_get_rowbytes(png_handler.png_ptr, png_handler.info_ptr));
-      png_read_rows(png_handler.png_ptr, row_pointers, nullptr, height);
-      png_read_image(png_handler.png_ptr, row_pointers);
+
+      png_read_rows(png_handler.png_ptr, row_pointers.data(), nullptr, height);
+      png_read_image(png_handler.png_ptr, row_pointers.data());
+
       for (png_uint_32 y = 0; y < height; y++)
           free(row_pointers[y]);
-      free(row_pointers);
   }
 
   // gamma check
