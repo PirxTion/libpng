@@ -81,11 +81,6 @@ void my_user_transform(png_structp png_ptr, png_row_infop row_info, png_bytep da
     // do nothing (placeholder)
 }
 
-// dummy user chunk handler
-png_uint_32 my_user_chunk(png_structp png_ptr, png_unknown_chunkp chunk) {
-    return PNG_HANDLE_CHUNK_AS_DEFAULT;
-}
-
 void* limited_malloc(png_structp, png_alloc_size_t size) {
   // libpng may allocate large amounts of memory that the fuzzer reports as
   // an error. In order to silence these errors, make libpng fail when trying
@@ -159,9 +154,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   // Setting up user callbacks
   png_set_read_user_transform_fn(png_handler.png_ptr, my_user_transform);
-  // png_set_read_user_chunk_fn(png_handler.png_ptr,
-  //                           nullptr,
-  //                           my_user_chunk);
+
 
   if (setjmp(png_jmpbuf(png_handler.png_ptr))) {
     PNG_CLEANUP
