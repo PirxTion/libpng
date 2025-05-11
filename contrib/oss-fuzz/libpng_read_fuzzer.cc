@@ -223,10 +223,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   // gamma check
   double file_gamma;
-  if (png_get_gAMA(png_handler.png_ptr, png_handler.info_ptr, &file_gamma)) {
-      png_fixed_point gamma_fixed = (png_fixed_point)(file_gamma * 100000);
-      png_gamma_not_sRGB(gamma_fixed);
-  }
+  png_get_gAMA(png_handler.png_ptr, png_handler.info_ptr, &file_gamma);
 
   if (setjmp(png_jmpbuf(png_handler.png_ptr)) == 0) {
     png_read_png(png_handler.png_ptr, png_handler.info_ptr, PNG_TRANSFORM_IDENTITY, nullptr);
