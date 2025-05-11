@@ -209,11 +209,30 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     }
   }
 
-  png_read_end(png_handler.png_ptr, png_handler.end_info_ptr);
+  // extra progressive read
+  png_bytep* row_pointers = (png_bytep*)malloc(sizeof(png_bytep) * height);
+  if (row_pointers) {
+      for (png_uint_32 y = 0; y < height; y++)
+          row_pointers[y] = (png_bytep)malloc(png_get_rowbytes(png_handler.png_ptr, png_handler.info_ptr));
+      png_read_rows(png_handler.png_ptr, row_pointers, nullptr, height);
+      png_read_image(png_handler.png_ptr, row_pointers);
+      for (png_uint_32 y = 0; y < height; y++)
+          free(row_pointers[y]);
+      free(row_pointers);
+  }
+
+  // gamma check
+  double file_gamma;
+  if (png_get_gAMA(png_handler.png_ptr, png_handler.info_ptr, &file_gamma)) {
+      png_fixed_point gamma_fixed = (png_fixed_point)(file_gamma * 100000);
+      png_gamma_not_sRGB(gamma_fixed);
+  }
 
   if (setjmp(png_jmpbuf(png_handler.png_ptr)) == 0) {
     png_read_png(png_handler.png_ptr, png_handler.info_ptr, PNG_TRANSFORM_IDENTITY, nullptr);
   }
+
+  png_read_end(png_handler.png_ptr, png_handler.end_info_ptr);
 
   PNG_CLEANUP
 
