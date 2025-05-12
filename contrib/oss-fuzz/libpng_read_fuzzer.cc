@@ -42,7 +42,7 @@
       png_destroy_read_struct(&png_handler.png_ptr, nullptr, nullptr); \
   }                                        \
   delete png_handler.buf_state;            \
-  memset(&png_handler, 0, sizeof(png_handler)) 
+  png_handler.buf_state = nullptr;
 
 struct BufState {
   const uint8_t* data;
@@ -66,7 +66,8 @@ struct PngObjectHandler {
       png_destroy_read_struct(&png_ptr, &info_ptr, nullptr);
     else
       png_destroy_read_struct(&png_ptr, nullptr, nullptr);
-    delete buf_state;
+    if (buf_state)
+      delete buf_state;
   }
 };
 
@@ -85,17 +86,17 @@ void my_user_transform(png_structp png_ptr, png_row_infop row_info, png_bytep da
     // do nothing (placeholder)
 }
 
-// void* limited_malloc(png_structp, png_alloc_size_t size) {
-//   // libpng may allocate large amounts of memory that the fuzzer reports as
-//   // an error. In order to silence these errors, make libpng fail when trying
-//   // to allocate a large amount. This allocator used to be in the Chromium
-//   // version of this fuzzer.
-//   // This number is chosen to match the default png_user_chunk_malloc_max.
-//   if (size > 8000000)
-//     return nullptr;
+void* limited_malloc(png_structp, png_alloc_size_t size) {
+  // libpng may allocate large amounts of memory that the fuzzer reports as
+  // an error. In order to silence these errors, make libpng fail when trying
+  // to allocate a large amount. This allocator used to be in the Chromium
+  // version of this fuzzer.
+  // This number is chosen to match the default png_user_chunk_malloc_max.
+  if (size > 8000000)
+    return nullptr;
 
-//   return malloc(size);
-// }
+  return malloc(size);
+}
 
 void default_free(png_structp, png_voidp ptr) {
   return free(ptr);
@@ -141,7 +142,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   }
 
   // // Use a custom allocator that fails for large allocations to avoid OOM.
-  // png_set_mem_fn(png_handler.png_ptr, nullptr, limited_malloc, default_free);
+  png_set_mem_fn(png_handler.png_ptr, nullptr, limited_malloc, default_free);
 
   png_set_crc_action(png_handler.png_ptr, PNG_CRC_QUIET_USE, PNG_CRC_QUIET_USE);
 #ifdef PNG_IGNORE_ADLER32
@@ -190,12 +191,103 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     return 0;
   }
 
-  // Set several transforms that browsers typically use:
-  png_set_gray_to_rgb(png_handler.png_ptr);
-  png_set_expand(png_handler.png_ptr);
-  png_set_packing(png_handler.png_ptr);
-  png_set_scale_16(png_handler.png_ptr);
-  png_set_tRNS_to_alpha(png_handler.png_ptr);
+  // 从输入数据中取一个字节来决定应用哪些变换
+  unsigned char transform_byte = 0;
+  if (size > kPngHeaderSize) { // 确保有额外的数据可用
+      transform_byte = data[kPngHeaderSize]; // 或者其他位置的字节
+  }
+
+  if (transform_byte & 0x01) {
+      png_set_gray_to_rgb(png_handler.png_ptr);
+  }
+  if (transform_byte & 0x02) {
+      // png_set_expand 可能会与某些颜色类型冲突或有特定要求
+      // 最好在了解其影响后再随机启用
+      if (color_type == PNG_COLOR_TYPE_PALETTE || 
+          (color_type == PNG_COLOR_TYPE_GRAY && bit_depth < 8) ||
+          png_get_valid(png_handler.png_ptr, png_handler.info_ptr, PNG_INFO_tRNS)) {
+          png_set_expand(png_handler.png_ptr);
+      }
+  }
+  if (transform_byte & 0x04) {
+      png_set_packing(png_handler.png_ptr);
+  }
+  if (transform_byte & 0x08) {
+      // png_set_scale_16 只在16位图像上有意义
+      if (bit_depth == 16) {
+        png_set_scale_16(png_handler.png_ptr);
+      }
+  }
+  // 你已经有了 png_set_strip_16, 可以考虑加入 png_set_strip_16(png_handler.png_ptr);
+  if (transform_byte & 0x10) {
+      if (bit_depth == 16) {
+          png_set_strip_16(png_handler.png_ptr);
+      }
+  }
+
+  // png_set_quantize: 需要调色板和更复杂的参数设置，随机化较难
+  // if (transform_byte & 0x20) {
+  //   if (color_type == PNG_COLOR_TYPE_RGB || color_type == PNG_COLOR_TYPE_RGBA) {
+  //     png_bytep palette_q = (png_bytep)png_malloc(png_handler.png_ptr, 256 * sizeof(png_byte));
+  //     png_colorp sig_palette_q = (png_colorp)png_malloc(png_handler.png_ptr, 256 * sizeof(png_color));
+  //     if (palette_q && sig_palette_q) {
+  //       // ... (需要填充调色板的逻辑，或者让libpng构建一个)
+  //       // png_set_quantize(png_handler.png_ptr, png_handler.info_ptr, 256, 256, palette_q, sig_palette_q, 1);
+  //     }
+  //     png_free(png_handler.png_ptr, palette_q);
+  //     png_free(png_handler.png_ptr, sig_palette_q);
+  //   }
+  // }
+
+
+  // png_set_gamma:
+  if (transform_byte & 0x20) { // 复用一个位
+      double screen_gamma = 2.2; // 通常是这个值
+      double image_gamma;
+      if (png_get_gAMA(png_handler.png_ptr, png_handler.info_ptr, &image_gamma)) {
+          png_set_gamma(png_handler.png_ptr, screen_gamma, image_gamma);
+      } else {
+          // 如果没有gAMA块，可以设置一个默认的图像伽马值，例如 PNG_DEFAULT_sRGB 或 1.0
+          png_set_gamma(png_handler.png_ptr, screen_gamma, PNG_DEFAULT_sRGB);
+      }
+  }
+
+  // png_set_background:
+  if (transform_byte & 0x40) {
+      png_color_16 my_background;
+      png_color_16 *image_background;
+
+      if (png_get_bKGD(png_handler.png_ptr, png_handler.info_ptr, &image_background)) {
+          png_set_background(png_handler.png_ptr, image_background,
+                            PNG_BACKGROUND_GAMMA_FILE, 1, 1.0);
+      } else {
+          // 提供一个默认背景色，例如灰色
+          // 注意：这里的颜色值需要根据图像的颜色类型和位深来适配，
+          // 简单起见，我们假设一个可以被转换的颜色
+          my_background.index = 0; // 对于索引色
+          my_background.red   = data[kPngHeaderSize % size] ; // 用fuzz数据随机化
+          my_background.green = data[(kPngHeaderSize+1) % size];
+          my_background.blue  = data[(kPngHeaderSize+2) % size];
+          my_background.gray  = my_background.green; 
+          png_set_background(png_handler.png_ptr, &my_background,
+                            PNG_BACKGROUND_GAMMA_SCREEN, 0, 1.0);
+      }
+  }
+
+  // 你已有的： png_set_tRNS_to_alpha(png_handler.png_ptr); 
+  // 可以也将其置于随机控制下
+  if (transform_byte & 0x80) {
+      if (png_get_valid(png_handler.png_ptr, png_handler.info_ptr, PNG_INFO_tRNS)) {
+          png_set_tRNS_to_alpha(png_handler.png_ptr);
+      }
+  }
+
+  // // Set several transforms that browsers typically use:
+  // png_set_gray_to_rgb(png_handler.png_ptr);
+  // png_set_expand(png_handler.png_ptr);
+  // png_set_packing(png_handler.png_ptr);
+  // png_set_scale_16(png_handler.png_ptr);
+  // png_set_tRNS_to_alpha(png_handler.png_ptr);
 
   int passes = png_set_interlace_handling(png_handler.png_ptr);
 
@@ -226,8 +318,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
       png_handler.rows_ptr[y] = static_cast<png_bytep>(
           png_malloc(png_handler.png_ptr,
                       png_get_rowbytes(png_handler.png_ptr, png_handler.info_ptr)));
-    png_read_rows  (png_handler.png_ptr, png_handler.rows_ptr, nullptr, height);
-    // png_read_image (png_handler.png_ptr, png_handler.rows_ptr);
+    // png_read_rows  (png_handler.png_ptr, png_handler.rows_ptr, nullptr, height);
+    png_read_image (png_handler.png_ptr, png_handler.rows_ptr);
   }
 
   if (setjmp(png_jmpbuf(png_handler.png_ptr))) {
