@@ -60,8 +60,6 @@ struct PngObjectHandler {
   BufState* buf_state = nullptr;
 
   ~PngObjectHandler() {
-    if (row_ptr)
-      png_free(png_ptr, row_ptr);
     if (end_info_ptr)
       png_destroy_read_struct(&png_ptr, &info_ptr, &end_info_ptr);
     else if (info_ptr)
