@@ -31,8 +31,6 @@
           png_free(png_handler.png_ptr, png_handler.rows_ptr[y]); \
       png_free(png_handler.png_ptr, png_handler.rows_ptr);        \
     }                                      \
-    if (png_handler.row_ptr)               \
-      png_free(png_handler.png_ptr, png_handler.row_ptr);         \
     if (png_handler.end_info_ptr)          \
       png_destroy_read_struct(&png_handler.png_ptr,               \
                               &png_handler.info_ptr,              \
@@ -55,7 +53,6 @@ struct PngObjectHandler {
   png_infop info_ptr = nullptr;
   png_structp png_ptr = nullptr;
   png_infop end_info_ptr = nullptr;
-  png_voidp row_ptr = nullptr;
 
   png_bytepp  rows_ptr  = nullptr;  /* array of row pointers            */
   png_uint_32 rows_h    = 0;        /* number of rows actually alloc'd  */
@@ -90,17 +87,17 @@ void my_user_transform(png_structp png_ptr, png_row_infop row_info, png_bytep da
     // do nothing (placeholder)
 }
 
-void* limited_malloc(png_structp, png_alloc_size_t size) {
-  // libpng may allocate large amounts of memory that the fuzzer reports as
-  // an error. In order to silence these errors, make libpng fail when trying
-  // to allocate a large amount. This allocator used to be in the Chromium
-  // version of this fuzzer.
-  // This number is chosen to match the default png_user_chunk_malloc_max.
-  if (size > 8000000)
-    return nullptr;
+// void* limited_malloc(png_structp, png_alloc_size_t size) {
+//   // libpng may allocate large amounts of memory that the fuzzer reports as
+//   // an error. In order to silence these errors, make libpng fail when trying
+//   // to allocate a large amount. This allocator used to be in the Chromium
+//   // version of this fuzzer.
+//   // This number is chosen to match the default png_user_chunk_malloc_max.
+//   if (size > 8000000)
+//     return nullptr;
 
-  return malloc(size);
-}
+//   return malloc(size);
+// }
 
 void default_free(png_structp, png_voidp ptr) {
   return free(ptr);
@@ -124,7 +121,6 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   PngObjectHandler png_handler;
   png_handler.png_ptr = nullptr;
-  png_handler.row_ptr = nullptr;
   png_handler.info_ptr = nullptr;
   png_handler.end_info_ptr = nullptr;
 
@@ -146,8 +142,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     return 0;
   }
 
-  // Use a custom allocator that fails for large allocations to avoid OOM.
-  png_set_mem_fn(png_handler.png_ptr, nullptr, limited_malloc, default_free);
+  // // Use a custom allocator that fails for large allocations to avoid OOM.
+  // png_set_mem_fn(png_handler.png_ptr, nullptr, limited_malloc, default_free);
 
   png_set_crc_action(png_handler.png_ptr, PNG_CRC_QUIET_USE, PNG_CRC_QUIET_USE);
 #ifdef PNG_IGNORE_ADLER32
@@ -207,16 +203,16 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
 
   png_read_update_info(png_handler.png_ptr, png_handler.info_ptr);
 
-  png_handler.row_ptr = png_malloc(
-      png_handler.png_ptr, png_get_rowbytes(png_handler.png_ptr,
-                                            png_handler.info_ptr));
+  // png_handler.row_ptr = png_malloc(
+  //     png_handler.png_ptr, png_get_rowbytes(png_handler.png_ptr,
+  //                                           png_handler.info_ptr));
 
-  for (int pass = 0; pass < passes; ++pass) {
-    for (png_uint_32 y = 0; y < height; ++y) {
-      png_read_row(png_handler.png_ptr,
-                   static_cast<png_bytep>(png_handler.row_ptr), nullptr);
-    }
-  }
+  // for (int pass = 0; pass < passes; ++pass) {
+  //   for (png_uint_32 y = 0; y < height; ++y) {
+  //     png_read_row(png_handler.png_ptr,
+  //                  static_cast<png_bytep>(png_handler.row_ptr), nullptr);
+  //   }
+  // }
 
   if (setjmp(png_jmpbuf(png_handler.png_ptr))) {
     PNG_CLEANUP;
@@ -224,18 +220,16 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   }
 
   // extra progressive read
-  if (height <= 2048) {                                   /* cap rows */
-    png_handler.rows_ptr = static_cast<png_bytepp>(
-        png_malloc(png_handler.png_ptr, sizeof(png_bytep) * height));
-    if (png_handler.rows_ptr) {
-      png_handler.rows_h = height;
-      for (png_uint_32 y = 0; y < height; ++y)
-        png_handler.rows_ptr[y] = static_cast<png_bytep>(
-            png_malloc(png_handler.png_ptr,
-                       png_get_rowbytes(png_handler.png_ptr, png_handler.info_ptr)));
-      png_read_rows  (png_handler.png_ptr, png_handler.rows_ptr, nullptr, height);
-      png_read_image (png_handler.png_ptr, png_handler.rows_ptr);
-    }
+  png_handler.rows_ptr = static_cast<png_bytepp>(
+      png_malloc(png_handler.png_ptr, sizeof(png_bytep) * height));
+  if (png_handler.rows_ptr) {
+    png_handler.rows_h = height;
+    for (png_uint_32 y = 0; y < height; ++y)
+      png_handler.rows_ptr[y] = static_cast<png_bytep>(
+          png_malloc(png_handler.png_ptr,
+                      png_get_rowbytes(png_handler.png_ptr, png_handler.info_ptr)));
+    png_read_rows  (png_handler.png_ptr, png_handler.rows_ptr, nullptr, height);
+    // png_read_image (png_handler.png_ptr, png_handler.rows_ptr);
   }
 
   if (setjmp(png_jmpbuf(png_handler.png_ptr))) {
@@ -246,10 +240,6 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
   // gamma check
   double file_gamma;
   png_get_gAMA(png_handler.png_ptr, png_handler.info_ptr, &file_gamma);
-
-  if (setjmp(png_jmpbuf(png_handler.png_ptr)) == 0) {
-    png_read_png(png_handler.png_ptr, png_handler.info_ptr, PNG_TRANSFORM_IDENTITY, nullptr);
-  }
 
   if (setjmp(png_jmpbuf(png_handler.png_ptr))) {
     PNG_CLEANUP;
