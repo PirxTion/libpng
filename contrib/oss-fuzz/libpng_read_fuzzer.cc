@@ -191,18 +191,15 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
     return 0;
   }
 
-  // 从输入数据中取一个字节来决定应用哪些变换
   unsigned char transform_byte = 0;
-  if (size > kPngHeaderSize) { // 确保有额外的数据可用
-      transform_byte = data[kPngHeaderSize]; // 或者其他位置的字节
+  if (size > kPngHeaderSize) {
+      transform_byte = data[kPngHeaderSize];
   }
 
   if (transform_byte & 0x01) {
       png_set_gray_to_rgb(png_handler.png_ptr);
   }
   if (transform_byte & 0x02) {
-      // png_set_expand 可能会与某些颜色类型冲突或有特定要求
-      // 最好在了解其影响后再随机启用
       if (color_type == PNG_COLOR_TYPE_PALETTE || 
           (color_type == PNG_COLOR_TYPE_GRAY && bit_depth < 8) ||
           png_get_valid(png_handler.png_ptr, png_handler.info_ptr, PNG_INFO_tRNS)) {
@@ -213,41 +210,23 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
       png_set_packing(png_handler.png_ptr);
   }
   if (transform_byte & 0x08) {
-      // png_set_scale_16 只在16位图像上有意义
       if (bit_depth == 16) {
         png_set_scale_16(png_handler.png_ptr);
       }
   }
-  // 你已经有了 png_set_strip_16, 可以考虑加入 png_set_strip_16(png_handler.png_ptr);
   if (transform_byte & 0x10) {
       if (bit_depth == 16) {
           png_set_strip_16(png_handler.png_ptr);
       }
   }
 
-  // png_set_quantize: 需要调色板和更复杂的参数设置，随机化较难
-  // if (transform_byte & 0x20) {
-  //   if (color_type == PNG_COLOR_TYPE_RGB || color_type == PNG_COLOR_TYPE_RGBA) {
-  //     png_bytep palette_q = (png_bytep)png_malloc(png_handler.png_ptr, 256 * sizeof(png_byte));
-  //     png_colorp sig_palette_q = (png_colorp)png_malloc(png_handler.png_ptr, 256 * sizeof(png_color));
-  //     if (palette_q && sig_palette_q) {
-  //       // ... (需要填充调色板的逻辑，或者让libpng构建一个)
-  //       // png_set_quantize(png_handler.png_ptr, png_handler.info_ptr, 256, 256, palette_q, sig_palette_q, 1);
-  //     }
-  //     png_free(png_handler.png_ptr, palette_q);
-  //     png_free(png_handler.png_ptr, sig_palette_q);
-  //   }
-  // }
-
-
   // png_set_gamma:
-  if (transform_byte & 0x20) { // 复用一个位
-      double screen_gamma = 2.2; // 通常是这个值
+  if (transform_byte & 0x20) { 
+      double screen_gamma = 2.2;
       double image_gamma;
       if (png_get_gAMA(png_handler.png_ptr, png_handler.info_ptr, &image_gamma)) {
           png_set_gamma(png_handler.png_ptr, screen_gamma, image_gamma);
       } else {
-          // 如果没有gAMA块，可以设置一个默认的图像伽马值，例如 PNG_DEFAULT_sRGB 或 1.0
           png_set_gamma(png_handler.png_ptr, screen_gamma, PNG_DEFAULT_sRGB);
       }
   }
@@ -261,11 +240,8 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
           png_set_background(png_handler.png_ptr, image_background,
                             PNG_BACKGROUND_GAMMA_FILE, 1, 1.0);
       } else {
-          // 提供一个默认背景色，例如灰色
-          // 注意：这里的颜色值需要根据图像的颜色类型和位深来适配，
-          // 简单起见，我们假设一个可以被转换的颜色
-          my_background.index = 0; // 对于索引色
-          my_background.red   = data[kPngHeaderSize % size] ; // 用fuzz数据随机化
+          my_background.index = 0; 
+          my_background.red   = data[kPngHeaderSize % size] ; 
           my_background.green = data[(kPngHeaderSize+1) % size];
           my_background.blue  = data[(kPngHeaderSize+2) % size];
           my_background.gray  = my_background.green; 
@@ -274,35 +250,16 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size) {
       }
   }
 
-  // 你已有的： png_set_tRNS_to_alpha(png_handler.png_ptr); 
-  // 可以也将其置于随机控制下
+
   if (transform_byte & 0x80) {
       if (png_get_valid(png_handler.png_ptr, png_handler.info_ptr, PNG_INFO_tRNS)) {
           png_set_tRNS_to_alpha(png_handler.png_ptr);
       }
   }
 
-  // // Set several transforms that browsers typically use:
-  // png_set_gray_to_rgb(png_handler.png_ptr);
-  // png_set_expand(png_handler.png_ptr);
-  // png_set_packing(png_handler.png_ptr);
-  // png_set_scale_16(png_handler.png_ptr);
-  // png_set_tRNS_to_alpha(png_handler.png_ptr);
-
   int passes = png_set_interlace_handling(png_handler.png_ptr);
 
   png_read_update_info(png_handler.png_ptr, png_handler.info_ptr);
-
-  // png_handler.row_ptr = png_malloc(
-  //     png_handler.png_ptr, png_get_rowbytes(png_handler.png_ptr,
-  //                                           png_handler.info_ptr));
-
-  // for (int pass = 0; pass < passes; ++pass) {
-  //   for (png_uint_32 y = 0; y < height; ++y) {
-  //     png_read_row(png_handler.png_ptr,
-  //                  static_cast<png_bytep>(png_handler.row_ptr), nullptr);
-  //   }
-  // }
 
   if (setjmp(png_jmpbuf(png_handler.png_ptr))) {
     PNG_CLEANUP;
